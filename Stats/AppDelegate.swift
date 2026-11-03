@@ -23,7 +23,9 @@ import Clock
 import Uptime
 import Remote
 
-let updater = Updater(github: "exelban/stats", url: "https://api.mac-stats.com/release/latest")
+// Personal fork: look only at Rookie-RC/stats releases (both endpoints), never at the official
+// release server, so an upstream update can't replace this custom build.
+let updater = Updater(github: "Rookie-RC/stats", url: "https://api.github.com/repos/Rookie-RC/stats/releases/latest")
 var modules: [Module] = [
     CPU(),
     GPU(),
