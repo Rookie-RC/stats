@@ -190,7 +190,7 @@ public class ProcessReader: Reader<[TopProcess]> {
         self.popup = true
         self.preview = true
         self.portal = true
-        self.setInterval(Store.shared.int(key: "\(self.title)_updateTopInterval", defaultValue: 1))
+        self.setInterval(Store.shared.int(key: "\(self.title)_updateTopInterval", defaultValue: 3))
     }
     
     public override func read() {

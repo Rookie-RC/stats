@@ -200,7 +200,7 @@ public class CPU: Module {
         guard let value = raw, self.enabled else { return }
         
         // smoothed usage (about half a minute) so a short spike doesn't light up the menu bar badge
-        let alpha = min(1, max(self.loadReader?.interval ?? 1, 1) / 30)
+        let alpha = min(1, max(self.loadReader?.interval ?? 2, 1) / 30)
         self.usageAverage = self.usageAverage.map { $0 + alpha * (value.totalUsage - $0) } ?? value.totalUsage
         let level: HealthLevel = (self.usageAverage ?? 0) >= 0.9 ? .warning : .ok
         HealthStatus.shared.set(.CPU, level, message: level == .ok ? "" : "\(localizedString("CPU is busy")): \(Int((self.usageAverage ?? 0) * 100))%")

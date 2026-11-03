@@ -55,7 +55,7 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
     }
     
     public var interval: Double? = nil
-    public var defaultInterval: Int = 1
+    public var defaultInterval: Int = 2
     public var popup: Bool = false
     public var preview: Bool = false
     /// Also needed while the combined popup (module portals) is open.

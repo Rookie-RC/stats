@@ -21,7 +21,7 @@ public class Portal: RowPortal {
     private let rows: Int = 3
 
     public init(_ module: ModuleType) {
-        let sparkline = SparklineView(capacity: 60)
+        let sparkline = SparklineView(capacity: 30)
         self.sparkline = sparkline
         super.init(module, title: "CPU", icon: NSImage(systemSymbolName: "cpu", accessibilityDescription: nil),
                    graphic: sparkline, graphicHeight: 20, spacing: 5)

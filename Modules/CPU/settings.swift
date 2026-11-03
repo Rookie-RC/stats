@@ -16,8 +16,8 @@ internal class Settings: NSStackView, Settings_v {
     private var usagePerCoreState: Bool = false
     private var hyperthreadState: Bool = false
     private var splitValueState: Bool = false
-    private var updateIntervalValue: Int = 1
-    private var updateTopIntervalValue: Int = 1
+    private var updateIntervalValue: Int = 2
+    private var updateTopIntervalValue: Int = 3
     private var numberOfProcesses: Int = 8
     private var clustersGroupState: Bool = false
     

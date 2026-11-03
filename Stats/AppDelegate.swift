@@ -13,31 +13,17 @@ import UserNotifications
 
 import CPU
 import RAM
-import Disk
-import Net
-import Battery
 import Sensors
-import GPU
-import Bluetooth
-import Clock
 import Uptime
-import Remote
 
 // Personal fork: look only at Rookie-RC/stats releases (both endpoints), never at the official
 // release server, so an upstream update can't replace this custom build.
 let updater = Updater(github: "Rookie-RC/stats", url: "https://api.github.com/repos/Rookie-RC/stats/releases/latest")
 var modules: [Module] = [
     CPU(),
-    GPU(),
     RAM(),
-    Disk(),
     Sensors(),
-    Network(),
-    Battery(),
-    Bluetooth(),
-    Clock(),
-    Uptime(),
-    Remote()
+    Uptime()
 ]
 
 @main

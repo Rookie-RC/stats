@@ -43,8 +43,8 @@ You can use a combination of any of the variables.
 """
 
 internal class Settings: NSStackView, Settings_v, NSTextFieldDelegate {
-    private var updateIntervalValue: Int = 1
-    private var updateTopIntervalValue: Int = 1
+    private var updateIntervalValue: Int = 2
+    private var updateTopIntervalValue: Int = 3
     private var numberOfProcesses: Int = 8
     private var splitValueState: Bool = false
     private var notificationLevel: String = "Disabled"
