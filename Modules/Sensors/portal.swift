@@ -13,7 +13,7 @@ import AppKit
 import Kit
 
 /// Fan row for the combined popup (falls back to CPU temperature on fanless Macs),
-/// plus a 2×2 temperature section under the rows.
+/// plus a CPU / battery temperature section under the rows.
 public class Portal: RowPortal {
     private let temperatures = PortalTileSection(title: localizedString("Temperature"), order: 0)
     public override var sections: [PortalSection] { [self.temperatures] }
@@ -27,8 +27,6 @@ public class Portal: RowPortal {
     }
     private let picks: [Pick] = [
         Pick(label: "CPU", keys: ["TCXC", "TC0F", "TC0D", "TC0E", "Hottest CPU", "Average CPU"]),
-        Pick(label: "CPU proximity", keys: ["TC0P"]),
-        Pick(label: "Heatpipe", keys: ["Th1H", "Th0H", "Th2H"]),
         Pick(label: "Battery", keys: ["TB0T", "TB1T", "TB2T"])
     ]
     private var resolved: [(label: String, key: String)] = []
