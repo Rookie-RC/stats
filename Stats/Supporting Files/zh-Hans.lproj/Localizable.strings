@@ -616,3 +616,10 @@
 "Remind me tonight" = "今晚提醒我";
 "Remind me in 2 hours" = "2 小时后提醒";
 "Reminder set for %0" = "已设 %0 提醒";
+
+// Combined popup (list)
+"Top CPU processes" = "占用 CPU 最多";
+"Activity Monitor" = "活动监视器";
+"Restart around %0" = "大约%0该重启";
+"compressed" = "压缩";
+"swap" = "交换";

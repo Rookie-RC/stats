@@ -12,16 +12,19 @@
 import Cocoa
 import Kit
 
-/// CPU card for the combined popup, plus the "top processes" section under the cards.
-public class Portal: CardPortal {
-    private let processes = PortalSection(title: localizedString("Top processes"), order: 1)
+/// CPU row for the combined popup (usage over the last minute), plus the "top processes" section.
+public class Portal: RowPortal {
+    private let processes = PortalListSection(title: localizedString("Top CPU processes"), order: 1)
     public override var sections: [PortalSection] { [self.processes] }
 
+    private let sparkline: SparklineView
     private let rows: Int = 3
 
     public init(_ module: ModuleType) {
-        super.init(module, title: "CPU", icon: NSImage(systemSymbolName: "cpu", accessibilityDescription: nil))
-        self.ring.setText("-")
+        let sparkline = SparklineView(capacity: 60)
+        self.sparkline = sparkline
+        super.init(module, title: "CPU", icon: NSImage(systemSymbolName: "cpu", accessibilityDescription: nil),
+                   graphic: sparkline, graphicHeight: 20, spacing: 5)
         self.processes.setRowCount(self.rows, icons: true)
     }
 
@@ -35,14 +38,17 @@ public class Portal: CardPortal {
 
         DispatchQueue.main.async(execute: {
             let usage = Int(value.totalUsage.rounded(toPlaces: 2) * 100)
-            self.ring.setSegments([ColorValue(value.totalUsage, color: level.color ?? .systemBlue)])
-            self.ring.setText("\(usage)%")
-            self.ring.toolTip = "\(localizedString("CPU usage")): \(usage)%"
+            self.setValue("\(usage)%", color: level.textColor)
+            self.sparkline.append(value.totalUsage, color: level.color ?? .systemBlue)
+            self.sparkline.toolTip = "\(localizedString("CPU usage")): \(usage)%"
 
             let user = Int(value.userLoad.rounded(toPlaces: 2) * 100)
             let system = Int(value.systemLoad.rounded(toPlaces: 2) * 100)
-            self.setLine(self.line1, "\(localizedString("User")) \(user)% · \(localizedString("System")) \(system)%")
-            self.setLine(self.line2, hasLoad ? "\(localizedString("Load")) \(String(format: "%.2f", load[0]))" : "")
+            var text = "\(localizedString("User")) \(user)% · \(localizedString("System")) \(system)%"
+            if hasLoad {
+                text += " · \(localizedString("Load")) \(String(format: "%.2f", load[0]))"
+            }
+            self.setSubtitle(text)
         })
     }
 

@@ -232,6 +232,22 @@ internal enum UptimeFormat {
         return formatter.string(from: date)
     }
     
+    /// Short day for one-line hints: "today", "tomorrow", a weekday within a week, otherwise e.g. "Nov 12".
+    static func shortDay(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) || calendar.isDateInTomorrow(date) {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+            formatter.doesRelativeDateFormatting = true
+            return formatter.string(from: date)
+        }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: Date()), to: calendar.startOfDay(for: date)).day ?? 0
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate(days < 7 ? "EEE" : "MMMd")
+        return formatter.string(from: date)
+    }
+    
     static func pressure(_ level: Int) -> String {
         switch level {
         case 4: return localizedString("Critical")
@@ -270,19 +286,6 @@ internal func scheduleRestartReminder(subtitle: String) -> Date {
 /// Title for the snooze button, depending on whether "tonight" is still ahead.
 internal var reminderButtonTitle: String {
     Calendar.current.component(.hour, from: Date()) >= 20 ? localizedString("Remind me in 2 hours") : localizedString("Remind me tonight")
-}
-
-internal func restartMac() {
-    // Asks loginwindow to show the standard "Are you sure you want to restart?" dialog,
-    // the same one as Apple menu > Restart…, so the user can still cancel and apps can save.
-    let task = Process()
-    task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-    task.arguments = ["-e", "tell application \"loginwindow\" to «event aevtrrst»"]
-    do {
-        try task.run()
-    } catch {
-        NSLog("Uptime: failed to show the restart dialog: \(error.localizedDescription)")
-    }
 }
 
 public class Uptime: Module {

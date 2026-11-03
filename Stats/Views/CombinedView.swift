@@ -282,7 +282,7 @@ private class Popup: NSStackView, Popup_p {
         self.orientation = .vertical
         self.distribution = .fill
         self.alignment = .width
-        self.spacing = 8
+        self.spacing = 0
         
         self.reinit()
         
@@ -309,49 +309,84 @@ private class Popup: NSStackView, Popup_p {
     @objc private func reinit() {
         self.arrangedSubviews.forEach({ $0.removeFromSuperview() })
         
-        let portals = modules.filter({ $0.enabled && $0.portal != nil }).compactMap({ $0.portal })
-        let cards = portals.compactMap({ $0 as? CardPortal })
-        let others = portals.filter({ !($0 is CardPortal) })
-        var heights: [CGFloat] = []
+        let enabled = modules.filter({ $0.enabled && $0.portal != nil })
+        let portals = enabled.compactMap({ $0.portal })
+        let rows = portals.compactMap({ $0 as? RowPortal })
+        let others = portals.filter({ !($0 is RowPortal) })
+        var height: CGFloat = 0
         
-        // cards: two per row
-        stride(from: 0, to: cards.count, by: 2).forEach { i in
-            let row = NSStackView()
-            row.orientation = .horizontal
-            row.distribution = .fillEqually
-            row.spacing = 8
-            for card in cards[i..<min(i+2, cards.count)] {
-                card.removeFromSuperview()
-                row.addArrangedSubview(card)
-            }
-            if row.arrangedSubviews.count == 1 {
-                row.addArrangedSubview(NSView())
-            }
-            row.heightAnchor.constraint(equalToConstant: CardPortal.cardHeight).isActive = true
-            self.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
-            heights.append(CardPortal.cardHeight)
+        func add(_ view: NSView, _ h: CGFloat, after spacing: CGFloat = 0) {
+            view.removeFromSuperview()
+            self.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
+            self.setCustomSpacing(spacing, after: view)
+            height += h + spacing
         }
         
-        // full-width sections the cards provide (temperatures, top processes, ...)
-        cards.flatMap({ $0.sections }).filter({ !$0.rows.isEmpty }).sorted(by: { $0.order < $1.order }).forEach { section in
-            section.removeFromSuperview()
-            self.addArrangedSubview(section)
-            section.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
-            heights.append(section.height)
+        // one row per module, separated by hairlines
+        rows.enumerated().forEach { (i, row) in
+            if i > 0 {
+                add(HairlineView(), 1)
+            }
+            add(row, row.height)
+        }
+        
+        // full-width sections the rows provide (temperatures, top processes, ...)
+        rows.flatMap({ $0.sections }).filter({ !$0.isEmpty }).sorted(by: { $0.order < $1.order }).forEach { section in
+            add(section, section.height)
         }
         
         // modules that still use the classic portal
         others.forEach { p in
-            self.addArrangedSubview(p)
-            p.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
-            heights.append(p.height)
+            add(p, p.height, after: 8)
         }
         
-        let h = heights.reduce(0, +) + (CGFloat(max(heights.count-1, 0)) * self.spacing)
-        if h > 0 {
-            self.setFrameSize(NSSize(width: self.frame.width, height: h))
-            self.sizeCallback?(self.frame.size)
+        // actions
+        var buttons: [NSView] = [PopupActionButton(title: localizedString("Activity Monitor"), target: self, action: #selector(self.openActivity))]
+        if enabled.contains(where: { $0.config.name == ModuleType.uptime.stringValue }) {
+            let restart = PopupActionButton(title: localizedString("Restart…"), primary: true, target: self, action: #selector(self.restart))
+            restart.toolTip = localizedString("Opens the standard macOS restart dialog")
+            buttons.append(restart)
+        }
+        let footer = NSStackView(views: buttons)
+        footer.orientation = .horizontal
+        footer.distribution = .fillEqually
+        footer.spacing = 7
+        footer.edgeInsets = NSEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
+        footer.heightAnchor.constraint(equalToConstant: 39).isActive = true
+        add(footer, 39)
+        
+        self.setFrameSize(NSSize(width: self.frame.width, height: height))
+        self.sizeCallback?(self.frame.size)
+    }
+    
+    @objc private func openActivity() {
+        self.window?.setIsVisible(false)
+        openActivityMonitor(tab: 0)
+    }
+    
+    @objc private func restart() {
+        self.window?.setIsVisible(false)
+        restartMac()
+    }
+}
+
+private class HairlineView: NSView {
+    override var wantsUpdateLayer: Bool { true }
+    
+    init() {
+        super.init(frame: .zero)
+        self.wantsLayer = true
+        self.heightAnchor.constraint(equalToConstant: 1).isActive = true
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func updateLayer() {
+        self.effectiveAppearance.performAsCurrentDrawingAppearance {
+            self.layer?.backgroundColor = NSColor.separatorColor.cgColor
         }
     }
 }

@@ -12,7 +12,7 @@ import Kit
 internal class Popup: PopupWrapper {
     private static let heights: (top: CGFloat, big: CGFloat, bar: CGFloat, forecast: CGFloat, index: CGFloat,
                                  separator: CGFloat, chips: CGFloat, row: CGFloat, buttons: CGFloat) =
-        (20, 46, 30, 50, 20, 30, 44, 22, 28)
+        (20, 46, 30, 50, 20, 30, 44, 22, 29)
     private static var totalHeight: CGFloat {
         let h = Popup.heights
         return h.top + 2 + h.big + 6 + h.bar + 8 + h.forecast + 8 + h.index + h.separator + h.chips + h.separator + h.row*4 + 10 + h.buttons
@@ -31,7 +31,7 @@ internal class Popup: PopupWrapper {
     private var bootField: NSTextField? = nil
     private var wakeField: NSTextField? = nil
     private var updateField: NSTextField? = nil
-    private var remindButton: NSButton? = nil
+    private var remindButton: PopupActionButton? = nil
 
     private let cache = PopupCache<UptimeState>()
 
@@ -153,18 +153,15 @@ internal class Popup: PopupWrapper {
     }
 
     private func initButtons() -> NSView {
-        let remind = NSButton(title: reminderButtonTitle, target: self, action: #selector(self.remind))
-        remind.bezelStyle = .rounded
+        let remind = PopupActionButton(title: reminderButtonTitle, target: self, action: #selector(self.remind))
         self.remindButton = remind
-        let restart = NSButton(title: localizedString("Restart…"), target: self, action: #selector(self.restart))
-        restart.bezelStyle = .rounded
-        restart.bezelColor = .controlAccentColor
+        let restart = PopupActionButton(title: localizedString("Restart…"), primary: true, target: self, action: #selector(self.restart))
         restart.toolTip = localizedString("Opens the standard macOS restart dialog")
 
         let row = NSStackView(views: [remind, restart])
         row.orientation = .horizontal
         row.distribution = .fillEqually
-        row.spacing = 8
+        row.spacing = 7
         return row
     }
 
@@ -202,7 +199,14 @@ internal class Popup: PopupWrapper {
                      endLabel: "\(threshold)h \(localizedString("Restart"))")
 
         if let date = value.restartForecast(score) {
-            self.forecastLabel.stringValue = localizedString("At about %0 hours a day, you will reach “restart recommended” around %1.", "\(Int(value.hoursPerDay.rounded()))", UptimeFormat.day(date))
+            let day = UptimeFormat.day(date)
+            let sentence = localizedString("At about %0 hours a day, you will reach “restart recommended” around %1.", "\(Int(value.hoursPerDay.rounded()))", day)
+            let text = NSMutableAttributedString(string: sentence, attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .regular), .foregroundColor: NSColor.labelColor])
+            let range = (sentence as NSString).range(of: day)
+            if range.location != NSNotFound {
+                text.addAttribute(.font, value: NSFont.systemFont(ofSize: 11, weight: .bold), range: range)
+            }
+            self.forecastLabel.attributedStringValue = text
         } else if let update = value.pendingUpdate {
             self.forecastLabel.stringValue = localizedString("Restart is recommended now, and %0 can be installed at the same time.", update)
         } else {

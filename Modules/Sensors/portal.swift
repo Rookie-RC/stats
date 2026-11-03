@@ -12,11 +12,13 @@
 import AppKit
 import Kit
 
-/// Fan card for the combined popup (falls back to CPU temperature on fanless Macs),
-/// plus a short temperature section under the cards.
-public class Portal: CardPortal {
-    private let temperatures = PortalSection(title: localizedString("Temperature"), order: 0)
+/// Fan row for the combined popup (falls back to CPU temperature on fanless Macs),
+/// plus a 2×2 temperature section under the rows.
+public class Portal: RowPortal {
+    private let temperatures = PortalTileSection(title: localizedString("Temperature"), order: 0)
     public override var sections: [PortalSection] { [self.temperatures] }
+
+    private let bar: LevelBar
 
     /// A curated set of temperatures, independent of which sensors the module popup lists.
     private struct Pick {
@@ -38,9 +40,10 @@ public class Portal: CardPortal {
     }
 
     public init(_ module: ModuleType) {
+        let bar = LevelBar()
+        self.bar = bar
         let icon = NSImage(systemSymbolName: "fan", accessibilityDescription: nil) ?? NSImage(systemSymbolName: "thermometer", accessibilityDescription: nil)
-        super.init(module, title: localizedString("Fan"), icon: icon)
-        self.ring.setText("-")
+        super.init(module, title: localizedString("Fan"), icon: icon, graphic: bar, graphicHeight: LevelBar.barHeight)
     }
 
     required public init?(coder: NSCoder) {
@@ -58,8 +61,13 @@ public class Portal: CardPortal {
         self.fanKeys = list.compactMap({ $0 as? Fan }).filter({ $0.popupState }).map({ $0.key })
 
         DispatchQueue.main.async(execute: {
-            self.setTitle(self.fanKeys.isEmpty ? localizedString("Temperature") : localizedString("Fan"))
-            if self.temperatures.setRowCount(self.resolved.count) {
+            if self.fanKeys.isEmpty {
+                self.setTitle(localizedString("Temperature"))
+                self.setIcon(NSImage(systemSymbolName: "thermometer", accessibilityDescription: nil))
+            } else {
+                self.setTitle(localizedString("Fan"))
+            }
+            if self.temperatures.setTileCount(self.resolved.count) {
                 NotificationCenter.default.post(name: .portalLayoutChanged, object: nil)
             }
         })
@@ -86,35 +94,36 @@ public class Portal: CardPortal {
         DispatchQueue.main.async(execute: {
             if let fan = fans.first {
                 let ratio = self.ratio(fan)
-                self.ring.setSegments([ColorValue(ratio, color: ratio >= 0.9 ? .systemOrange : .systemBlue)])
+                let fast = ratio >= 0.9
                 if self.fanValueState == .percentage {
-                    self.ring.setText("\(fan.percentage)%")
+                    self.setValue("\(fan.percentage)%", color: fast ? HealthLevel.warning.textColor : nil)
                 } else {
-                    self.ring.setText("\(Int(max(0, fan.value)))", unit: "RPM")
+                    self.setValue("\(Int(max(0, fan.value)))", unit: "RPM", color: fast ? HealthLevel.warning.textColor : nil)
                 }
-                self.ring.toolTip = "\(localizedString(fan.name)): \(Int(fan.value)) RPM"
+                self.bar.set([ColorValue(ratio, color: fast ? .systemOrange : .systemBlue)])
+                self.bar.toolTip = "\(localizedString(fan.name)): \(Int(fan.value)) RPM"
 
+                var parts: [(text: String, color: NSColor?)] = []
                 if let cpu {
-                    self.setLine(self.line1, "CPU \(cpu.formattedPopupValue)", color: Self.temperatureLevel(cpu.value).textColor)
-                } else {
-                    self.setLine(self.line1, localizedString(fan.name))
+                    let temperature = Self.temperatureLevel(cpu.value)
+                    parts.append(("CPU ", nil))
+                    parts.append((cpu.formattedPopupValue, temperature.textColor ?? NSColor.labelColor))
+                    parts.append((" · ", nil))
                 }
                 let mode = localizedString(fan.mode.isAutomatic ? "Automatic" : "Manual")
-                self.setLine(self.line2, "\(mode) · \(Int(fan.minSpeed))–\(Int(fan.maxSpeed))")
+                parts.append(("\(mode) · \(Int(fan.minSpeed))–\(Int(fan.maxSpeed))", nil))
+                self.setSubtitle(parts)
             } else if let cpu {
-                let level = Self.temperatureLevel(cpu.value)
-                self.ring.setSegments([ColorValue(min(cpu.value / 100, 1), color: level.color ?? .systemBlue)])
-                self.ring.setText(cpu.formattedMiniValue)
-                self.setLine(self.line1, "CPU", color: level.textColor)
-                self.setLine(self.line2, "")
+                let temperature = Self.temperatureLevel(cpu.value)
+                self.setValue(cpu.formattedPopupValue, color: temperature.textColor)
+                self.bar.set([ColorValue(min(cpu.value / 100, 1), color: temperature.color ?? .systemBlue)])
+                self.setSubtitle("CPU")
             }
 
-            for (i, row) in self.temperatures.rows.enumerated() where i < self.resolved.count {
+            for (i, tile) in self.temperatures.tiles.enumerated() where i < self.resolved.count {
                 let pick = self.resolved[i]
                 guard let sensor = byKey[pick.key] else { continue }
-                let level = Self.temperatureLevel(sensor.value)
-                row.set(label: pick.label, value: sensor.formattedPopupValue, bar: sensor.value / 100,
-                        color: level.color, valueColor: level.textColor)
+                tile.set(label: pick.label, value: sensor.formattedPopupValue, level: Self.temperatureLevel(sensor.value))
             }
         })
     }

@@ -12,8 +12,10 @@
 import Cocoa
 import Kit
 
-/// Memory card for the combined popup: ring split into app / wired / compressed, used of total, pressure.
-public class Portal: CardPortal {
+/// Memory row for the combined popup: usage, a bar split into app / wired / compressed, used of total.
+public class Portal: RowPortal {
+    private let bar: LevelBar
+
     private var appColor: NSColor {
         SColor.fromString(Store.shared.string(key: "\(self.name)_appColor", defaultValue: SColor.secondBlue.key)).additional as? NSColor ?? .systemBlue
     }
@@ -25,8 +27,10 @@ public class Portal: CardPortal {
     }
 
     public init(_ module: ModuleType) {
-        super.init(module, title: localizedString("Memory"), icon: NSImage(systemSymbolName: "memorychip", accessibilityDescription: nil))
-        self.ring.setText("-")
+        let bar = LevelBar()
+        self.bar = bar
+        super.init(module, title: localizedString("Memory"), icon: NSImage(systemSymbolName: "memorychip", accessibilityDescription: nil),
+                   graphic: bar, graphicHeight: LevelBar.barHeight)
     }
 
     required public init?(coder: NSCoder) {
@@ -36,21 +40,22 @@ public class Portal: CardPortal {
     internal func callback(_ value: RAM_Usage) {
         DispatchQueue.main.async(execute: {
             guard value.total > 0 else { return }
-            self.ring.setSegments([
+            let pressure = value.pressure.value
+            let usage = Int(value.usage.rounded(toPlaces: 2) * 100)
+            let level: HealthLevel = pressure == .critical ? .critical : (pressure == .warning ? .warning : .ok)
+            self.setValue("\(usage)%", color: level.textColor)
+            self.bar.set([
                 ColorValue(value.app/value.total, color: self.appColor),
                 ColorValue(value.wired/value.total, color: self.wiredColor),
                 ColorValue(value.compressed/value.total, color: self.compressedColor)
             ])
-            self.ring.setText("\(Int(value.usage.rounded(toPlaces: 2) * 100))%")
-            self.ring.toolTip = "\(localizedString("Memory usage")): \(Int(value.usage * 100))%"
+            self.bar.toolTip = "\(localizedString("Pressure")) \(localizedString(pressure.rawValue.capitalized))"
 
-            let used = Units(bytes: Int64(value.used)).getReadableMemory(style: .memory)
-            let total = Units(bytes: Int64(value.total)).getReadableMemory(style: .memory)
-            self.setLine(self.line1, "\(used) / \(total)")
-
-            let pressure = value.pressure.value
-            self.setLine(self.line2, "\(localizedString("Pressure")) \(localizedString(pressure.rawValue.capitalized))",
-                         color: pressure == .normal ? nil : pressure.pressureColor())
+            let format: (Double) -> String = { Units(bytes: Int64($0)).getReadableMemory(style: .memory) }
+            var text = "\(format(value.used)) / \(format(value.total))"
+            text += " · \(localizedString("compressed")) \(format(value.compressed))"
+            text += " · \(localizedString("swap")) \(format(value.swap.used))"
+            self.setSubtitle(text)
         })
     }
 }
