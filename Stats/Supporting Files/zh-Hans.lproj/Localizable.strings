@@ -573,3 +573,28 @@
 "Login to System Stats to see your devices" = "登录 System Stats 以查看您的设备"; // qwen3.8:27b
 "Monitor HTTP, ICMP and custom endpoints" = "监控 HTTP、ICMP 和自定义端点"; // qwen3.8:27b
 "Monitor and control your Macs from anywhere. Sign in to your System Stats account to see all your devices and hosts in one place." = "随时随地监控和控制你的 Mac。登录你的 System Stats 账户，即可在一个地方查看所有设备和主机。"; // qwen3.8:27b
+
+// Uptime module
+"Fine" = "良好";
+"Soon" = "近期";
+"Restart" = "重启";
+"No restart needed" = "无需重启";
+"Restart soon" = "建议近期重启";
+"Restart recommended" = "建议重启";
+"Awake time" = "运行时长";
+"Time the Mac has been awake since boot, sleep excluded" = "本次开机后 Mac 实际运行的时间，不含睡眠";
+"Since boot" = "开机至今";
+"Boot time" = "开机时间";
+"Last wake" = "上次唤醒";
+"Restart index" = "重启指数";
+"Pending update" = "待装更新";
+"Restart…" = "重启…";
+"Opens the standard macOS restart dialog" = "打开系统标准的重启确认对话框";
+"Count uptime by" = "计时方式";
+"Awake time (sleep excluded)" = "运行时长（不含睡眠）";
+"Time since boot" = "开机至今（含睡眠）";
+"Restart threshold" = "重启阈值";
+"Color by restart index" = "按重启指数着色";
+"Notify when restart is recommended" = "建议重启时发送通知";
+"Remind again after" = "再次提醒间隔";
+"Time to restart your Mac" = "该重启 Mac 了";

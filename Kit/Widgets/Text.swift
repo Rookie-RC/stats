@@ -13,6 +13,7 @@ import Cocoa
 
 public class TextWidget: WidgetWrapper {
     private var value: String = ""
+    private var color: NSColor? = nil
     private static let variableRegex = try? NSRegularExpression(pattern: "(\\$[a-zA-Z0-9_]+)(?:\\.([a-zA-Z0-9_]+))?")
     
     public init(title: String, preview: Bool = false) {
@@ -38,8 +39,10 @@ public class TextWidget: WidgetWrapper {
         super.draw(dirtyRect)
         
         var value: String = ""
+        var color: NSColor? = nil
         self.queue.sync {
             value = self.value
+            color = self.color
         }
         
         if value.isEmpty {
@@ -52,7 +55,7 @@ public class TextWidget: WidgetWrapper {
         style.alignment = .center
         let stringAttributes = [
             NSAttributedString.Key.font: NSFont.systemFont(ofSize: valueSize, weight: .regular),
-            NSAttributedString.Key.foregroundColor: NSColor.textColor,
+            NSAttributedString.Key.foregroundColor: color ?? NSColor.textColor,
             NSAttributedString.Key.paragraphStyle: style
         ]
         let attributedString = NSAttributedString(string: value, attributes: stringAttributes)
@@ -72,6 +75,19 @@ public class TextWidget: WidgetWrapper {
         let updated = self.queue.sync { () -> Bool in
             guard self.value != newValue else { return false }
             self.value = newValue
+            return true
+        }
+        guard updated else { return }
+        DispatchQueue.main.async(execute: {
+            self.needsDisplay = true
+        })
+    }
+    
+    // nil restores the default text color
+    public func setColor(_ newColor: NSColor?) {
+        let updated = self.queue.sync { () -> Bool in
+            guard self.color != newColor else { return false }
+            self.color = newColor
             return true
         }
         guard updated else { return }

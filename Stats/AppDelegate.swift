@@ -20,6 +20,7 @@ import Sensors
 import GPU
 import Bluetooth
 import Clock
+import Uptime
 import Remote
 
 let updater = Updater(github: "exelban/stats", url: "https://api.mac-stats.com/release/latest")
@@ -33,6 +34,7 @@ var modules: [Module] = [
     Battery(),
     Bluetooth(),
     Clock(),
+    Uptime(),
     Remote()
 ]
 

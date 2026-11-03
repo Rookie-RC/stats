@@ -61,6 +61,7 @@ public enum ModuleType: Int {
     case bluetooth
     case clock
     case remote
+    case uptime
     
     case combined
     
@@ -76,6 +77,7 @@ public enum ModuleType: Int {
         case .bluetooth: return "Bluetooth"
         case .clock: return "Clock"
         case .remote: return "Remote"
+        case .uptime: return "Uptime"
         case .combined: return ""
         }
     }
@@ -87,6 +89,7 @@ public enum ModuleType: Int {
         case .disk: return 3
         case .network: return 4
         case .battery: return 2
+        case .uptime: return 1
         default: return nil
         }
     }
