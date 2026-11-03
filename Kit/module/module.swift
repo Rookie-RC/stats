@@ -40,6 +40,9 @@ public struct module_c {
         if self.icon == nil, let symbol = dict["AlternativeSymbol"] as? String {
             self.icon = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         }
+        if let glyph = dict["Glyph"] as? String, let image = KitGlyph.image(glyph) {
+            self.icon = image
+        }
         
         if let widgetsDict = dict["Widgets"] as? NSDictionary {
             var list: [String: Int] = [:]
@@ -104,6 +107,7 @@ open class Module {
     private var readers: [Reader_p] = []
     private var popupVisible = false
     private var settingsVisible = false
+    private var combinedVisible = false
     
     private var pauseState: Bool {
         get { Store.shared.bool(key: "pause", defaultValue: false) }
@@ -150,6 +154,7 @@ open class Module {
         NotificationCenter.default.addObserver(self, selector: #selector(listenForPopupToggle), name: .togglePopup, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(listenForToggleWidget), name: .toggleWidget, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(listenForWindowOpen), name: .openWindow, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(listenForCombinedPopup), name: .combinedPopupVisibility, object: nil)
         
         // swiftlint:disable empty_count
         if self.config.widgetsConfig.count != 0 {
@@ -271,12 +276,19 @@ open class Module {
         self.updateReaderVisibility()
     }
     
+    @objc private func listenForCombinedPopup(_ notification: Notification) {
+        guard let state = notification.userInfo?["state"] as? Bool else { return }
+        self.combinedVisible = state
+        self.updateReaderVisibility()
+    }
+    
     private func readerHasVisibleConsumer(_ reader: Reader_p) -> Bool {
         // Regular readers can enter sleep mode while either view is already open.
-        let shared = reader.sleep || (!reader.popup && !reader.preview)
+        let shared = reader.sleep || (!reader.popup && !reader.preview && !reader.portal)
         return self.enabled && (
             (self.popupVisible && (reader.popup || shared)) ||
-            (self.settingsVisible && (reader.preview || shared))
+            (self.settingsVisible && (reader.preview || shared)) ||
+            (self.combinedVisible && reader.portal)
         )
     }
     
@@ -300,7 +312,7 @@ open class Module {
             } else {
                 reader.lock()
             }
-            guard reader.popup || reader.preview || reader.sleep else { return }
+            guard reader.popup || reader.preview || reader.sleep || reader.portal else { return }
             
             if visible {
                 reader.initStoreValues(title: self.config.name)

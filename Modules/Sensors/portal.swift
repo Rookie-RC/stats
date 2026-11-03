@@ -12,147 +12,121 @@
 import AppKit
 import Kit
 
-public class Portal: PortalWrapper {
-    private var container: ScrollableStackView = ScrollableStackView()
-    
-    private var list: [String: NSView] = [:]
-    
-    private var unknownSensorsState: Bool {
-        Store.shared.bool(key: "Sensors_unknown", defaultValue: false)
+/// Fan card for the combined popup (falls back to CPU temperature on fanless Macs),
+/// plus a short temperature section under the cards.
+public class Portal: CardPortal {
+    private let temperatures = PortalSection(title: localizedString("Temperature"), order: 0)
+    public override var sections: [PortalSection] { [self.temperatures] }
+
+    /// A curated set of temperatures, independent of which sensors the module popup lists.
+    private struct Pick {
+        let label: String
+        let keys: [String]
     }
+    private let picks: [Pick] = [
+        Pick(label: "CPU", keys: ["TCXC", "TC0F", "TC0D", "TC0E", "Hottest CPU", "Average CPU"]),
+        Pick(label: "CPU proximity", keys: ["TC0P"]),
+        Pick(label: "Heatpipe", keys: ["Th1H", "Th0H", "Th2H"]),
+        Pick(label: "Battery", keys: ["TB0T", "TB1T", "TB2T"])
+    ]
+    private var resolved: [(label: String, key: String)] = []
+    private var cpuKey: String? = nil
+    private var fanKeys: [String] = []
+
     private var fanValueState: FanValue {
         FanValue(rawValue: Store.shared.string(key: "Sensors_popup_fanValue", defaultValue: FanValue.percentage.rawValue)) ?? .percentage
     }
-    
-    public override func load() {
-        self.container.stackView.spacing = 0
-        self.body.addArrangedSubview(self.container)
+
+    public init(_ module: ModuleType) {
+        let icon = NSImage(systemSymbolName: "fan", accessibilityDescription: nil) ?? NSImage(systemSymbolName: "thermometer", accessibilityDescription: nil)
+        super.init(module, title: localizedString("Fan"), icon: icon)
+        self.ring.setText("-")
     }
-    
+
+    required public init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     public func setup(_ values: [Sensor_p]? = nil) {
-        guard var list = values else { return }
-        list = list.filter{ $0.popupState }
-        if !self.unknownSensorsState {
-            list = list.filter({ $0.group != .unknown })
+        guard let list = values else { return }
+        let keys = Set(list.map { $0.key })
+
+        self.resolved = self.picks.compactMap { pick in
+            pick.keys.first(where: { keys.contains($0) }).map { (localizedString(pick.label), $0) }
         }
-        
-        if !self.list.isEmpty {
-            self.container.stackView.subviews.forEach({ $0.removeFromSuperview() })
-            self.list = [:]
-        }
-        
-        let width: CGFloat = Constants.Popup.width - self.body.edgeInsets.left - self.body.edgeInsets.right
-        list.compactMap({ $0 as? Fan }).forEach { fan in
-            let v = FanRingView(fan)
-            v.update(fan)
-            self.container.stackView.addArrangedSubview(v)
-            v.widthAnchor.constraint(equalTo: self.container.stackView.widthAnchor).isActive = true
-            self.list[fan.key] = v
-        }
-        list.filter({ !($0 is Fan) }).forEach { s in
-            let v = ValueSensorView(s, width: width, callback: {})
-            v.update(self.formattedValue(s))
-            self.container.stackView.addArrangedSubview(v)
-            v.widthAnchor.constraint(equalTo: self.container.stackView.widthAnchor).isActive = true
-            self.list[s.key] = v
-        }
-    }
-    
-    public func usageCallback(_ values: [Sensor_p]) {
+        self.cpuKey = self.picks[0].keys.first(where: { keys.contains($0) })
+        self.fanKeys = list.compactMap({ $0 as? Fan }).filter({ $0.popupState }).map({ $0.key })
+
         DispatchQueue.main.async(execute: {
-            if self.window?.isVisible ?? false {
-                values.forEach { (s: Sensor_p) in
-                    if let v = self.list[s.key] as? FanRingView, let fan = s as? Fan {
-                        v.update(fan)
-                    } else if let v = self.list[s.key] as? ValueSensorView {
-                        v.update(self.formattedValue(s))
-                    }
-                }
+            self.setTitle(self.fanKeys.isEmpty ? localizedString("Temperature") : localizedString("Fan"))
+            if self.temperatures.setRowCount(self.resolved.count) {
+                NotificationCenter.default.post(name: .portalLayoutChanged, object: nil)
             }
         })
     }
-    
-    private func formattedValue(_ sensor: Sensor_p) -> String {
-        if let fan = sensor as? Fan {
-            return self.fanValueState == .percentage ? "\(fan.percentage)%" : fan.formattedValue
+
+    public func usageCallback(_ values: [Sensor_p]) {
+        let byKey = Dictionary(values.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        let fans = self.fanKeys.compactMap { byKey[$0] as? Fan }
+        let cpu = self.cpuKey.flatMap { byKey[$0] }
+
+        // health: a fan near full speed or a CPU at throttling temperature
+        var level: HealthLevel = .ok
+        var message = ""
+        if let fan = fans.max(by: { self.ratio($0) < self.ratio($1) }), self.ratio(fan) >= 0.9 {
+            level = .warning
+            message = "\(localizedString("Fan is running fast")): \(Int(fan.value)) RPM"
         }
-        return sensor.formattedPopupValue
-    }
-}
+        if let cpu, cpu.value >= 100 {
+            level = .warning
+            message = "\(localizedString("CPU is very hot")): \(cpu.formattedPopupValue)"
+        }
+        HealthStatus.shared.set(.sensors, level, message: message)
 
-// Ring chart for a fan, styled like the CPU/RAM portal circles.
-internal class FanRingView: NSStackView {
-    private let circle: PieChartView = PieChartView(drawValue: false)
-    private let rpmField: NSTextField = NSTextField(labelWithString: "")
-    private let unitField: NSTextField = NSTextField(labelWithString: "RPM")
-    private var speedField: ValueField? = nil
-    private var minField: ValueField? = nil
-    private var maxField: ValueField? = nil
-    
-    init(_ fan: Fan) {
-        super.init(frame: .zero)
-        self.orientation = .horizontal
-        self.distribution = .fillEqually
-        self.spacing = Constants.Popup.spacing*2
-        self.heightAnchor.constraint(equalToConstant: 80).isActive = true
-        
-        let ring = NSStackView()
-        // same sizing as CPU/RAM portal circles (80pt row, 10pt insets → 60pt ring)
-        ring.heightAnchor.constraint(equalToConstant: 80).isActive = true
-        ring.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        ring.addArrangedSubview(self.circle)
-        self.circle.setNonActiveSegmentColor(NSColor.lightGray)
-        
-        self.rpmField.font = NSFont.systemFont(ofSize: 15, weight: .regular)
-        self.unitField.font = NSFont.systemFont(ofSize: 8, weight: .regular)
-        self.unitField.textColor = .secondaryLabelColor
-        let label = NSStackView(views: [self.rpmField, self.unitField])
-        label.orientation = .vertical
-        label.alignment = .centerX
-        label.spacing = 0
-        label.translatesAutoresizingMaskIntoConstraints = false
-        self.circle.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: self.circle.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: self.circle.centerYAnchor)
-        ])
-        
-        let details = NSStackView()
-        details.orientation = .vertical
-        details.distribution = .fillEqually
-        details.spacing = 2
-        (_, self.speedField, _) = portalRow(details, title: "\(localizedString(fan.name)):")
-        (_, self.minField, _) = portalRow(details, title: "\(localizedString("Min")):")
-        (_, self.maxField, _) = portalRow(details, title: "\(localizedString("Max")):")
-        
-        self.addArrangedSubview(ring)
-        self.addArrangedSubview(details)
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    private static func ramColor(_ key: String, _ def: SColor) -> NSColor {
-        SColor.fromString(Store.shared.string(key: "RAM_\(key)", defaultValue: def.key)).additional as! NSColor
+        DispatchQueue.main.async(execute: {
+            if let fan = fans.first {
+                let ratio = self.ratio(fan)
+                self.ring.setSegments([ColorValue(ratio, color: ratio >= 0.9 ? .systemOrange : .systemBlue)])
+                if self.fanValueState == .percentage {
+                    self.ring.setText("\(fan.percentage)%")
+                } else {
+                    self.ring.setText("\(Int(max(0, fan.value)))", unit: "RPM")
+                }
+                self.ring.toolTip = "\(localizedString(fan.name)): \(Int(fan.value)) RPM"
+
+                if let cpu {
+                    self.setLine(self.line1, "CPU \(cpu.formattedPopupValue)", color: Self.temperatureLevel(cpu.value).textColor)
+                } else {
+                    self.setLine(self.line1, localizedString(fan.name))
+                }
+                let mode = localizedString(fan.mode.isAutomatic ? "Automatic" : "Manual")
+                self.setLine(self.line2, "\(mode) · \(Int(fan.minSpeed))–\(Int(fan.maxSpeed))")
+            } else if let cpu {
+                let level = Self.temperatureLevel(cpu.value)
+                self.ring.setSegments([ColorValue(min(cpu.value / 100, 1), color: level.color ?? .systemBlue)])
+                self.ring.setText(cpu.formattedMiniValue)
+                self.setLine(self.line1, "CPU", color: level.textColor)
+                self.setLine(self.line2, "")
+            }
+
+            for (i, row) in self.temperatures.rows.enumerated() where i < self.resolved.count {
+                let pick = self.resolved[i]
+                guard let sensor = byKey[pick.key] else { continue }
+                let level = Self.temperatureLevel(sensor.value)
+                row.set(label: pick.label, value: sensor.formattedPopupValue, bar: sensor.value / 100,
+                        color: level.color, valueColor: level.textColor)
+            }
+        })
     }
 
-    func update(_ fan: Fan) {
-        let value = max(0, fan.value)
-        let ratio = fan.maxSpeed > 0 ? min(1, value / fan.maxSpeed) : 0
-        // segmented with exactly the RAM ring colors: 0–40% app (blue), 40–70% wired (orange),
-        // 70–100% compressed (pink), rest free (light gray)
-        self.circle.setValue(ratio)
-        self.circle.setSegments([
-            ColorValue(min(ratio, 0.4), color: Self.ramColor("appColor", SColor.secondBlue)),
-            ColorValue(min(max(ratio - 0.4, 0), 0.3), color: Self.ramColor("wiredColor", SColor.secondOrange)),
-            ColorValue(max(ratio - 0.7, 0), color: Self.ramColor("compressedColor", SColor.pink))
-        ])
-        self.circle.setNonActiveSegmentColor(Self.ramColor("freeColor", SColor.lightGray))
-        self.circle.toolTip = "\(localizedString(fan.name)): \(Int(value)) RPM (\(Int(ratio*100))%)"
-        self.rpmField.stringValue = "\(Int(value))"
-        self.speedField?.stringValue = "\(Int(value)) RPM"
-        self.minField?.stringValue = "\(Int(fan.minSpeed)) RPM"
-        self.maxField?.stringValue = "\(Int(fan.maxSpeed)) RPM"
+    private func ratio(_ fan: Fan) -> Double {
+        fan.maxSpeed > 0 ? min(1, max(0, fan.value) / fan.maxSpeed) : 0
+    }
+
+    /// Celsius thresholds for coloring: 80 °C warm, 95 °C hot.
+    private static func temperatureLevel(_ celsius: Double) -> HealthLevel {
+        if celsius >= 95 { return .critical }
+        if celsius >= 80 { return .warning }
+        return .ok
     }
 }

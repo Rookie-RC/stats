@@ -8,6 +8,7 @@
 
 import Cocoa
 import Kit
+import UserNotifications
 
 public struct Uptime_t: Codable {
     public var bootDate: Date
@@ -51,6 +52,17 @@ internal enum RestartLevel: Int {
         }
     }
 
+    var health: HealthLevel {
+        switch self {
+        case .fine: return .ok
+        case .soon: return .warning
+        case .now: return .critical
+        }
+    }
+    
+    /// Readable text color for the summary; nil keeps the default secondary color.
+    var textColor: NSColor? { self.health.textColor }
+    
     var summary: String {
         switch self {
         case .fine: return localizedString("No restart needed")
@@ -68,6 +80,11 @@ internal struct RestartScore {
     /// Worst memory signal, 0...1.
     let memory: Double
 
+    /// The index as shown everywhere, and how it splits into time and memory points.
+    var points: Int { Int(self.value.rounded()) }
+    var timePoints: Int { min(self.points, Int((75 * self.time).rounded())) }
+    var memoryPoints: Int { max(0, self.points - self.timePoints) }
+    
     var level: RestartLevel {
         if self.value >= 75 { return .now }
         if self.value >= 50 { return .soon }
@@ -105,6 +122,14 @@ internal enum UptimeConfig {
         get { Store.shared.int(key: "\(title)_remindInterval", defaultValue: 12) }
         set { Store.shared.set(key: "\(title)_remindInterval", value: newValue) }
     }
+    /// Automatic reminders stay quiet until then (set by "remind me tonight").
+    static var snoozeUntil: Date? {
+        get {
+            let ts = Store.shared.int(key: "\(title)_snoozeUntil", defaultValue: 0)
+            return ts == 0 ? nil : Date(timeIntervalSince1970: TimeInterval(ts))
+        }
+        set { Store.shared.set(key: "\(title)_snoozeUntil", value: Int(newValue?.timeIntervalSince1970 ?? 0)) }
+    }
     static var lastNotification: Date? {
         get {
             let ts = Store.shared.int(key: "\(title)_lastNotification", defaultValue: 0)
@@ -136,6 +161,37 @@ extension Uptime_t {
     }
 }
 
+extension Uptime_t {
+    private var quarterOfRAM: Double { max(self.memoryTotal * 0.25, 1) }
+    
+    var swapLevel: HealthLevel {
+        let ratio = self.swapUsed / self.quarterOfRAM
+        return ratio >= 0.7 ? .critical : (ratio >= 0.3 ? .warning : .ok)
+    }
+    var compressedLevel: HealthLevel {
+        let ratio = self.compressed / self.quarterOfRAM
+        return ratio >= 0.8 ? .critical : (ratio >= 0.4 ? .warning : .ok)
+    }
+    var pressureHealth: HealthLevel {
+        self.pressureLevel >= 4 ? .critical : (self.pressureLevel >= 2 ? .warning : .ok)
+    }
+    
+    /// Hours the Mac is typically awake per day during this boot (24 when counting since boot).
+    var hoursPerDay: Double {
+        if UptimeConfig.basis == "boot" { return 24 }
+        return max(1, (self.awake / 3600) / max(self.sinceBoot / 86400, 1))
+    }
+    
+    /// When the index is expected to reach "restart recommended" at the current pace; nil if it already has.
+    func restartForecast(_ score: RestartScore, thresholdHours: Int = UptimeConfig.thresholdHours) -> Date? {
+        guard score.level != .now else { return nil }
+        let timeNeeded = max(0, (0.75 - 0.25 * score.memory) / 0.75)
+        let remaining = timeNeeded * Double(thresholdHours) - self.basisSeconds() / 3600
+        guard remaining > 0 else { return nil }
+        return Date().addingTimeInterval(remaining / self.hoursPerDay * 86400)
+    }
+}
+
 internal enum UptimeFormat {
     /// Menu bar format: 35m, 42h, 5d10h.
     static func compact(_ seconds: TimeInterval) -> String {
@@ -162,6 +218,20 @@ internal enum UptimeFormat {
         return formatter.string(from: date)
     }
 
+    /// "today" / "tomorrow", otherwise e.g. "Thursday, Nov 5" in the user's locale.
+    static func day(_ date: Date) -> String {
+        if Calendar.current.isDateInToday(date) || Calendar.current.isDateInTomorrow(date) {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+            formatter.doesRelativeDateFormatting = true
+            return formatter.string(from: date)
+        }
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMMdEEEE")
+        return formatter.string(from: date)
+    }
+    
     static func pressure(_ level: Int) -> String {
         switch level {
         case 4: return localizedString("Critical")
@@ -169,6 +239,37 @@ internal enum UptimeFormat {
         default: return localizedString("Normal")
         }
     }
+}
+
+/// Schedules a one-off "time to restart" reminder; returns when it will fire.
+@discardableResult
+internal func scheduleRestartReminder(subtitle: String) -> Date {
+    let now = Date()
+    var date = Calendar.current.date(bySettingHour: 21, minute: 0, second: 0, of: now) ?? now
+    if Calendar.current.component(.hour, from: now) >= 20 {
+        date = now.addingTimeInterval(2 * 3600)
+    }
+    UptimeConfig.snoozeUntil = date
+    
+    let content = UNMutableNotificationContent()
+    content.title = localizedString("Time to restart your Mac")
+    content.subtitle = subtitle
+    content.sound = UNNotificationSound.default
+    let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+    let request = UNNotificationRequest(identifier: "eu.exelban.Stats.Uptime.reminder", content: content,
+                                        trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false))
+    let center = UNUserNotificationCenter.current()
+    center.requestAuthorization(options: [.alert, .sound]) { _, _ in
+        center.add(request) { error in
+            if let error { NSLog("Uptime: failed to schedule the reminder: \(error.localizedDescription)") }
+        }
+    }
+    return date
+}
+
+/// Title for the snooze button, depending on whether "tonight" is still ahead.
+internal var reminderButtonTitle: String {
+    Calendar.current.component(.hour, from: Date()) >= 20 ? localizedString("Remind me in 2 hours") : localizedString("Remind me tonight")
 }
 
 internal func restartMac() {
@@ -227,13 +328,17 @@ public class Uptime: Module {
 
         let text = UptimeFormat.compact(value.basisSeconds())
         let color: NSColor? = UptimeConfig.colorize ? score.level.color : nil
+        
+        // the badge on the combined menu bar icon
+        let message = score.level == .fine ? "" : "\(score.level.summary) · \(localizedString("Awake time")) \(UptimeFormat.duration(value.awake, days: false))"
+        HealthStatus.shared.set(.uptime, score.level.health, message: message)
 
         self.menuBar.widgets.filter{ $0.isActive }.forEach { (w: SWidget) in
             switch w.item {
             case let widget as TextWidget:
                 widget.setValue(text)
                 widget.setColor(color)
-                let tooltip = "\(localizedString("Restart index")): \(Int(score.value)) · \(score.level.summary)"
+                let tooltip = "\(localizedString("Restart index")): \(score.points) · \(score.level.summary)"
                 DispatchQueue.main.async { widget.toolTip = tooltip }
             case let widget as Mini:
                 widget.setValue(score.value / 100)
@@ -252,6 +357,8 @@ public class Uptime: Module {
         guard UptimeConfig.notify, state.score.level == .now else { return }
         // The reader replays the last stored value on launch; never notify based on data from a previous boot.
         guard abs(state.value.awake - ProcessInfo.processInfo.systemUptime) < 120 else { return }
+        // the user asked to be reminded later; that reminder is scheduled separately
+        if let snooze = UptimeConfig.snoozeUntil, snooze > Date() { return }
 
         if let last = UptimeConfig.lastNotification, last > state.value.bootDate,
            Date().timeIntervalSince(last) < TimeInterval(UptimeConfig.remindHours * 3600) {

@@ -12,88 +12,45 @@
 import Cocoa
 import Kit
 
-public class Portal: PortalWrapper {
-    private var circle: PieChartView = PieChartView(drawValue: true)
-    
-    private var usedField: NSTextField? = nil
-    private var freeField: NSTextField? = nil
-    private var swapField: NSTextField? = nil
-    private var pressureLevelField: NSTextField? = nil
-    
-    private var initialized: Bool = false
-    
+/// Memory card for the combined popup: ring split into app / wired / compressed, used of total, pressure.
+public class Portal: CardPortal {
     private var appColor: NSColor {
-        SColor.fromString(Store.shared.string(key: "\(self.name)_appColor", defaultValue: SColor.secondBlue.key)).additional as! NSColor
+        SColor.fromString(Store.shared.string(key: "\(self.name)_appColor", defaultValue: SColor.secondBlue.key)).additional as? NSColor ?? .systemBlue
     }
     private var wiredColor: NSColor {
-        SColor.fromString(Store.shared.string(key: "\(self.name)_wiredColor", defaultValue: SColor.secondOrange.key)).additional as! NSColor
+        SColor.fromString(Store.shared.string(key: "\(self.name)_wiredColor", defaultValue: SColor.secondOrange.key)).additional as? NSColor ?? .systemOrange
     }
     private var compressedColor: NSColor {
-        SColor.fromString(Store.shared.string(key: "\(self.name)_compressedColor", defaultValue: SColor.pink.key)).additional as! NSColor
+        SColor.fromString(Store.shared.string(key: "\(self.name)_compressedColor", defaultValue: SColor.pink.key)).additional as? NSColor ?? .systemPink
     }
-    private var freeColor: NSColor {
-        SColor.fromString(Store.shared.string(key: "\(self.name)_freeColor", defaultValue: SColor.lightGray.key)).additional as! NSColor
+
+    public init(_ module: ModuleType) {
+        super.init(module, title: localizedString("Memory"), icon: NSImage(systemSymbolName: "memorychip", accessibilityDescription: nil))
+        self.ring.setText("-")
     }
-    
-    public override func load() {
-        let circle = self.circleView()
-        let details = self.detailsView()
-        
-        self.body.addArrangedSubview(circle)
-        self.body.addArrangedSubview(details)
+
+    required public init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
-    
-    private func circleView() -> NSView {
-        let view = NSStackView()
-        
-        view.heightAnchor.constraint(equalToConstant: 80).isActive = true
-        view.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        
-        view.addArrangedSubview(self.circle)
-        
-        return view
-    }
-    
-    private func detailsView() -> NSView {
-        let view = NSStackView()
-        
-        view.orientation = .vertical
-        view.distribution = .fillEqually
-        view.spacing = Constants.Popup.spacing*2
-        
-        self.usedField = portalRow(view, title: "\(localizedString("Used")):").1
-        self.freeField = portalRow(view, title: "\(localizedString("Free")):").1
-        self.swapField = portalRow(view, title: "Swap:").1
-        self.pressureLevelField = portalRow(view, title: "\(localizedString("Pressure")):").1
-        
-        return view
-    }
-    
+
     internal func callback(_ value: RAM_Usage) {
         DispatchQueue.main.async(execute: {
-            if (self.window?.isVisible ?? false) || !self.initialized {
-                self.usedField?.stringValue = Units(bytes: Int64(value.used)).getReadableMemory(style: .memory)
-                self.freeField?.stringValue = Units(bytes: Int64(value.free)).getReadableMemory(style: .memory)
-                self.swapField?.stringValue = Units(bytes: Int64(value.swap.used)).getReadableMemory(style: .memory)
-                self.pressureLevelField?.stringValue = value.pressure.value.rawValue
-                
-                self.usedField?.toolTip = "\(Int(value.usage.rounded(toPlaces: 2) * 100))%"
-                self.freeField?.toolTip = "\(Int((1-value.usage).rounded(toPlaces: 2) * 100))%"
-                if let level = memoryPressureLevels.first(where: { $0.additional as? RAMPressure == value.pressure.value }) {
-                    self.pressureLevelField?.toolTip = localizedString(level.value)
-                }
-                
-                self.circle.toolTip = "\(localizedString("Memory usage")): \(Int(value.usage*100))%"
-                self.circle.setValue(value.usage)
-                self.circle.setSegments([
-                    ColorValue(value.app/value.total, color: self.appColor),
-                    ColorValue(value.wired/value.total, color: self.wiredColor),
-                    ColorValue(value.compressed/value.total, color: self.compressedColor)
-                ])
-                self.circle.setNonActiveSegmentColor(self.freeColor)
-                
-                self.initialized = true
-            }
+            guard value.total > 0 else { return }
+            self.ring.setSegments([
+                ColorValue(value.app/value.total, color: self.appColor),
+                ColorValue(value.wired/value.total, color: self.wiredColor),
+                ColorValue(value.compressed/value.total, color: self.compressedColor)
+            ])
+            self.ring.setText("\(Int(value.usage.rounded(toPlaces: 2) * 100))%")
+            self.ring.toolTip = "\(localizedString("Memory usage")): \(Int(value.usage * 100))%"
+
+            let used = Units(bytes: Int64(value.used)).getReadableMemory(style: .memory)
+            let total = Units(bytes: Int64(value.total)).getReadableMemory(style: .memory)
+            self.setLine(self.line1, "\(used) / \(total)")
+
+            let pressure = value.pressure.value
+            self.setLine(self.line2, "\(localizedString("Pressure")) \(localizedString(pressure.rawValue.capitalized))",
+                         color: pressure == .normal ? nil : pressure.pressureColor())
         })
     }
 }

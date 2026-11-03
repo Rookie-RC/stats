@@ -63,6 +63,7 @@ public class CPU: Module {
     
     private var loadReader: LoadReader? = nil
     private var processReader: ProcessReader? = nil
+    private var usageAverage: Double? = nil
     private var temperatureReader: TemperatureReader? = nil
     private var frequencyReader: FrequencyReader? = nil
     private var limitReader: LimitReader? = nil
@@ -126,7 +127,7 @@ public class CPU: Module {
     public init() {
         self.settingsView = Settings(.CPU)
         self.popupView = Popup(.CPU)
-        self.portalView = Portal(.CPU, height: 120)
+        self.portalView = Portal(.CPU)
         self.notificationsView = Notifications(.CPU)
         self.previewView = Preview(.CPU)
         
@@ -146,6 +147,7 @@ public class CPU: Module {
         self.processReader = ProcessReader(.CPU) { [weak self] value in
             self?.popupView.processCallback(value)
             self?.previewView.processCallback(value)
+            self?.portalView.processCallback(value ?? [])
         }
         self.averageLoadReader = AverageLoadReader(.CPU, popup: true) { [weak self] value in
             self?.popupView.averageCallback(value)
@@ -197,8 +199,14 @@ public class CPU: Module {
     private func loadCallback(_ raw: CPU_Load?) {
         guard let value = raw, self.enabled else { return }
         
+        // smoothed usage (about half a minute) so a short spike doesn't light up the menu bar badge
+        let alpha = min(1, max(self.loadReader?.interval ?? 1, 1) / 30)
+        self.usageAverage = self.usageAverage.map { $0 + alpha * (value.totalUsage - $0) } ?? value.totalUsage
+        let level: HealthLevel = (self.usageAverage ?? 0) >= 0.9 ? .warning : .ok
+        HealthStatus.shared.set(.CPU, level, message: level == .ok ? "" : "\(localizedString("CPU is busy")): \(Int((self.usageAverage ?? 0) * 100))%")
+        
         self.popupView.loadCallback(value)
-        self.portalView.callback(value)
+        self.portalView.callback(value, level: level)
         self.notificationsView.loadCallback(value)
         self.previewView.loadCallback(value)
         

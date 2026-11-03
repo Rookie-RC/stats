@@ -314,6 +314,9 @@ public extension Notification.Name {
     static let pause = Notification.Name("pause")
     static let toggleFanControl = Notification.Name("toggleFanControl")
     static let combinedModulesPopup = Notification.Name("combinedModulesPopup")
+    static let combinedPopupVisibility = Notification.Name("combinedPopupVisibility")
+    static let healthStatusChanged = Notification.Name("healthStatusChanged")
+    static let portalLayoutChanged = Notification.Name("portalLayoutChanged")
     static let remoteLoginSuccess = Notification.Name("remoteLoginSuccess")
     static let remoteState = Notification.Name("remoteState")
     static let remoteAuthenticated = Notification.Name("remoteAuthenticated")
@@ -485,4 +488,61 @@ public struct DeviceResponse: Codable {
     public let user_code: String
     public let verification_uri_complete: URL
     public let interval: Int?
+}
+
+// MARK: - Health status
+
+/// How much attention a module needs; drives the badge on the combined menu bar icon.
+public enum HealthLevel: Int, Comparable {
+    case ok = 0
+    case warning = 1
+    case critical = 2
+    
+    public static func < (lhs: HealthLevel, rhs: HealthLevel) -> Bool { lhs.rawValue < rhs.rawValue }
+    
+    public var color: NSColor? {
+        switch self {
+        case .ok: return nil
+        case .warning: return .systemOrange
+        case .critical: return .systemRed
+        }
+    }
+}
+
+/// Shared registry where modules report whether something needs the user's attention.
+public final class HealthStatus {
+    public static let shared = HealthStatus()
+    
+    public struct Entry: Equatable {
+        public let level: HealthLevel
+        public let message: String
+    }
+    
+    private let queue = DispatchQueue(label: "eu.exelban.Stats.health")
+    private var entries: [String: Entry] = [:]
+    
+    public func set(_ module: ModuleType, _ level: HealthLevel, message: String = "") {
+        let entry = Entry(level: level, message: message)
+        let changed: Bool = self.queue.sync {
+            let key = module.stringValue
+            let previous = self.entries[key]
+            if level == .ok {
+                self.entries[key] = nil
+            } else {
+                self.entries[key] = entry
+            }
+            return previous != self.entries[key]
+        }
+        guard changed else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .healthStatusChanged, object: nil)
+        }
+    }
+    
+    /// Entries for the given module names, most severe first.
+    public func entries(for modules: [String]) -> [Entry] {
+        self.queue.sync {
+            modules.compactMap { self.entries[$0] }.sorted { $0.level > $1.level }
+        }
+    }
 }

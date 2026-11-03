@@ -14,6 +14,7 @@ import Cocoa
 public protocol Reader_p {
     var popup: Bool { get }
     var preview: Bool { get }
+    var portal: Bool { get }
     var sleep: Bool { get }
     
     func setup()
@@ -57,6 +58,8 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
     public var defaultInterval: Int = 1
     public var popup: Bool = false
     public var preview: Bool = false
+    /// Also needed while the combined popup (module portals) is open.
+    public var portal: Bool = false
     public var sleep: Bool = false
     
     public var alignToSecondBoundary: Bool = false

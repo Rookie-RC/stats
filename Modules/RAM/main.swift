@@ -104,7 +104,7 @@ public class RAM: Module {
     public init() {
         self.settingsView = Settings(.RAM)
         self.popupView = Popup(.RAM)
-        self.portalView = Portal(.RAM, height: 80)
+        self.portalView = Portal(.RAM)
         self.notificationsView = Notifications(.RAM)
         self.previewView = Preview(.RAM)
         
@@ -152,6 +152,12 @@ public class RAM: Module {
     
     private func loadCallback(_ raw: RAM_Usage?) {
         guard let value = raw, self.enabled else { return }
+        
+        switch value.pressure.value {
+        case .warning: HealthStatus.shared.set(.RAM, .warning, message: localizedString("Memory pressure is high"))
+        case .critical: HealthStatus.shared.set(.RAM, .critical, message: localizedString("Memory pressure is critical"))
+        default: HealthStatus.shared.set(.RAM, .ok)
+        }
         
         self.popupView.loadCallback(value)
         self.portalView.callback(value)

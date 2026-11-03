@@ -212,7 +212,8 @@ internal class PopupView: NSView {
         self.containerHeight = self.body.documentView?.frame.height
         
         self.foreground = NSVisualEffectView(frame: frame)
-        self.foreground.material = .titlebar
+        // gray frosted glass in both appearances, like system menus
+        self.foreground.material = .menu
         self.foreground.blendingMode = .behindWindow
         self.foreground.state = .active
         self.foreground.wantsLayer = true
@@ -243,7 +244,7 @@ internal class PopupView: NSView {
     }
     
     override func updateLayer() {
-        self.background.layer?.backgroundColor = self.isDarkMode ? .clear : NSColor.white.cgColor
+        self.background.layer?.backgroundColor = NSColor.clear.cgColor
     }
     
     fileprivate func setView(_ view: Popup_p?) {

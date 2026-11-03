@@ -16,6 +16,7 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
     private var menuBarItem: NSStatusItem? = nil
     private var view: NSView = NSView(frame: NSRect(x: 0, y: 0, width: 0, height: Constants.Widget.height))
     private var popup: PopupWindow? = nil
+    private let badge: BadgeView = BadgeView(frame: NSRect(x: 0, y: 0, width: 7, height: 7))
     
     private var status: Bool {
         Store.shared.bool(key: "CombinedModules", defaultValue: false) && !Store.shared.bool(key: "pause", defaultValue: false)
@@ -52,7 +53,9 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
             }
         }
         
-        self.popup = PopupWindow(title: "Combined modules", module: .combined, view: Popup()) { _ in }
+        self.popup = PopupWindow(title: "Overview", module: .combined, view: Popup()) { state in
+            NotificationCenter.default.post(name: .combinedPopupVisibility, object: nil, userInfo: ["state": state])
+        }
         
         if self.status {
             self.enable()
@@ -61,6 +64,7 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(listenForStateChange), name: .toggleOneView, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(listenForStateChange), name: .pause, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(listenForModuleRearrrange), name: .moduleRearrange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateBadge), name: .healthStatusChanged, object: nil)
     }
     
     deinit {
@@ -102,9 +106,11 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
         self.view.subviews.forEach({ $0.removeFromSuperview() })
         
         if self.iconOnly {
-            self.view.addSubview(AppIcon())
+            let icon = AppIcon()
+            self.view.addSubview(icon)
             self.view.setFrameSize(NSSize(width: AppIcon.size.width, height: self.view.frame.height))
             self.menuBarItem?.length = AppIcon.size.width
+            self.placeBadge(on: icon.frame)
             return
         }
         
@@ -124,6 +130,25 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
         }
         self.view.setFrameSize(NSSize(width: w, height: self.view.frame.height))
         self.menuBarItem?.length = w
+        if let first = visibleModules.first {
+            self.placeBadge(on: first.menuBar.view.frame)
+        }
+    }
+    
+    // The badge sits on the top-right corner of the first item and shows the most severe health status.
+    private func placeBadge(on frame: NSRect) {
+        let h = self.view.frame.height
+        self.badge.setFrameOrigin(NSPoint(x: frame.maxX - 6.5, y: h/2 + 2.5))
+        self.view.addSubview(self.badge, positioned: .above, relativeTo: nil)
+        self.updateBadge()
+    }
+    
+    @objc private func updateBadge() {
+        let names = self.activeModules.map { $0.config.name }
+        let entries = HealthStatus.shared.entries(for: names)
+        self.badge.color = entries.first?.level.color
+        let messages = entries.map { $0.message }.filter { !$0.isEmpty }
+        self.menuBarItem?.button?.toolTip = messages.isEmpty ? localizedString("Combined modules") : messages.joined(separator: "\n")
     }
     
     // call when popup appear/disappear
@@ -221,6 +246,30 @@ private class SeparatorLineView: NSView {
     }
 }
 
+private class BadgeView: NSView {
+    var color: NSColor? = nil {
+        didSet {
+            self.isHidden = self.color == nil
+            self.needsDisplay = true
+        }
+    }
+    
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        self.isHidden = true
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func draw(_ dirtyRect: NSRect) {
+        guard let color = self.color else { return }
+        color.setFill()
+        NSBezierPath(ovalIn: self.bounds).fill()
+    }
+}
+
 private class Popup: NSStackView, Popup_p {
     fileprivate var keyboardShortcut: [UInt16] = []
     fileprivate var sizeCallback: ((NSSize) -> Void)? = nil
@@ -233,11 +282,12 @@ private class Popup: NSStackView, Popup_p {
         self.orientation = .vertical
         self.distribution = .fill
         self.alignment = .width
-        self.spacing = Constants.Popup.spacing*3
+        self.spacing = 8
         
         self.reinit()
         
         NotificationCenter.default.addObserver(self, selector: #selector(reinit), name: .toggleModule, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(reinit), name: .portalLayoutChanged, object: nil)
     }
     
     required init?(coder: NSCoder) {
@@ -257,19 +307,48 @@ private class Popup: NSStackView, Popup_p {
     }
     
     @objc private func reinit() {
-        self.subviews.forEach({ $0.removeFromSuperview() })
+        self.arrangedSubviews.forEach({ $0.removeFromSuperview() })
         
-        let availableModules = modules.filter({ $0.enabled && $0.portal != nil })
-        var modulesHeight: CGFloat = 0
-        availableModules.forEach { (m: Module) in
-            if let p = m.portal {
-                modulesHeight += p.height
-                self.addArrangedSubview(p)
-                p.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
+        let portals = modules.filter({ $0.enabled && $0.portal != nil }).compactMap({ $0.portal })
+        let cards = portals.compactMap({ $0 as? CardPortal })
+        let others = portals.filter({ !($0 is CardPortal) })
+        var heights: [CGFloat] = []
+        
+        // cards: two per row
+        stride(from: 0, to: cards.count, by: 2).forEach { i in
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.distribution = .fillEqually
+            row.spacing = 8
+            for card in cards[i..<min(i+2, cards.count)] {
+                card.removeFromSuperview()
+                row.addArrangedSubview(card)
             }
+            if row.arrangedSubviews.count == 1 {
+                row.addArrangedSubview(NSView())
+            }
+            row.heightAnchor.constraint(equalToConstant: CardPortal.cardHeight).isActive = true
+            self.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
+            heights.append(CardPortal.cardHeight)
         }
         
-        let h = modulesHeight + (CGFloat(availableModules.count-1)*self.spacing)
+        // full-width sections the cards provide (temperatures, top processes, ...)
+        cards.flatMap({ $0.sections }).filter({ !$0.rows.isEmpty }).sorted(by: { $0.order < $1.order }).forEach { section in
+            section.removeFromSuperview()
+            self.addArrangedSubview(section)
+            section.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
+            heights.append(section.height)
+        }
+        
+        // modules that still use the classic portal
+        others.forEach { p in
+            self.addArrangedSubview(p)
+            p.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
+            heights.append(p.height)
+        }
+        
+        let h = heights.reduce(0, +) + (CGFloat(max(heights.count-1, 0)) * self.spacing)
         if h > 0 {
             self.setFrameSize(NSSize(width: self.frame.width, height: h))
             self.sizeCallback?(self.frame.size)
